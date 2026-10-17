@@ -1,0 +1,414 @@
+// Prisma schema for Klanvision Billing & Invoice Management SaaS
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                  String               @id @default(uuid())
+  email               String               @unique
+  passwordHash        String
+  name                String
+  phone               String?
+  avatarUrl           String?
+  role                String               @default("ADMIN") // OWNER, ADMIN, ACCOUNTANT, VIEWER
+  isActive            Boolean              @default(true)
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+
+  memberships         Membership[]
+  auditLogs           AuditLog[]
+  invoicesCreated     Invoice[]            @relation("UserInvoices")
+  passwordResetTokens PasswordResetToken[]
+  sessions            Session[]
+}
+
+model Tenant {
+  id          String   @id @default(uuid())
+  name        String
+  legalName   String
+  email       String
+  phone       String
+  website     String?
+  address     String
+  city        String
+  state       String
+  postalCode  String
+  country     String   @default("India")
+  logoUrl     String?
+  gstin       String
+  pan         String?
+  cin         String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  memberships   Membership[]
+  settings      CompanySettings?
+  customers     Customer[]
+  products      Product[]
+  invoices      Invoice[]
+  payments      Payment[]
+  auditLogs     AuditLog[]
+  notifications Notification[]
+  sessions      Session[]
+  invites       TenantInvite[]
+}
+
+model Membership {
+  id        String   @id @default(uuid())
+  userId    String
+  tenantId  String
+  role      String   @default("ADMIN") // OWNER, ADMIN, ACCOUNTANT, VIEWER
+  isDefault Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, tenantId])
+}
+
+model PasswordResetToken {
+  id        String    @id @default(uuid())
+  userId    String
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+  
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([tokenHash])
+  @@index([userId])
+}
+
+model Session {
+  id           String    @id @default(uuid())
+  userId       String
+  tenantId     String
+  sessionToken String    @unique
+  expiresAt    DateTime
+  rememberMe   Boolean   @default(false)
+  ipAddress    String?
+  userAgent    String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([sessionToken])
+  @@index([userId])
+  @@index([tenantId])
+}
+
+model CompanySettings {
+  id                   String   @id @default(uuid())
+  tenantId             String   @unique
+  currency             String   @default("INR")
+  currencySymbol       String   @default("₹")
+  dateFormat           String   @default("DD/MM/YYYY")
+  timeZone             String   @default("Asia/Kolkata")
+  defaultPaymentTerms  Int      @default(30) // days
+  defaultTaxRate       Float    @default(18.0)
+  roundOffEnabled      Boolean  @default(true)
+  invoicePrefix        String   @default("INV-2025-")
+  invoiceNumberPadding Int      @default(4) // e.g. 0001
+  nextInvoiceNumber    Int      @default(13)
+  
+  // Banking & UPI
+  bankName             String?  @default("HDFC Bank")
+  bankAccountNumber    String?  @default("50200012345678")
+  bankIfsc             String?  @default("HDFC0001234")
+  bankBranch           String?  @default("Dwarka Sector 11, New Delhi")
+  upiId                String?  @default("klanvision@upi")
+  upiQrUrl             String?
+  enableUpi            Boolean  @default(true)
+  enableNetBanking     Boolean  @default(true)
+  enableCardPayments   Boolean  @default(false)
+
+  // Notification Preferences
+  emailNotifications   Boolean  @default(true)
+  smsNotifications     Boolean  @default(true)
+  paymentReminders     Boolean  @default(true)
+  
+  // Customization
+  termsAndConditions   String?  @default("1. Payment due within 30 days of invoice date.\n2. Interest @ 18% p.a. will be charged on overdue payments.\n3. Goods once sold will not be taken back.")
+  notes                String?  @default("Thank you for your business! For any billing queries, please contact info@klanvision.com.")
+  signatureUrl         String?
+  authorizedSignatory  String?  @default("Authorized Signatory")
+  
+  // GST Settings
+  gstRegisteredState      String?   @default("Delhi (07)")
+  isCompositionScheme     Boolean   @default(false)
+  reverseChargeApplicable Boolean   @default(false)
+  eInvoicingEnabled       Boolean   @default(false)
+  gstVerificationStatus   String    @default("CONFIGURED") // CONFIGURED, GOVT_VERIFIED, PENDING_VERIFICATION
+  gstVerifiedTradeName    String?   @default("KLANVISION TECHNOLOGIES PRIVATE LIMITED")
+  gstVerifiedDate         DateTime?
+  einvoicingGspProvider   String?   @default("NIC")
+
+  // Invoice Numbering
+  sequenceResetFrequency  String    @default("NEVER") // NEVER, YEARLY, MONTHLY
+  numberingFormat         String    @default("PREFIX_SEQ") // PREFIX_SEQ, PREFIX_YEAR_SEQ
+
+  // Templates & Branding
+  templateTheme           String    @default("MODERN") // MODERN, CLASSIC, MINIMAL
+  primaryColor            String    @default("#0c1938")
+  accentColor             String    @default("#2563eb")
+  showCompanyLogo         Boolean   @default(true)
+  showTaxSummary          Boolean   @default(true)
+  showPaymentQr           Boolean   @default(true)
+  footerText              String?   @default("This is a computer generated invoice and does not require a physical signature unless configured.")
+
+  // Payment Methods
+  accountHolderName       String?   @default("Klanvision Technologies Pvt. Ltd.")
+  enableCash              Boolean   @default(true)
+  enableCheque            Boolean   @default(true)
+  paymentInstructions     String?   @default("Please quote invoice number in transaction remarks.")
+
+  // Notifications & Scheduled Delivery
+  overdueReminders        Boolean   @default(true)
+  invoiceSentNotifications Boolean  @default(true)
+  reminderDaysBeforeDue   Int       @default(3)
+  overdueReminderDaysAfterDue Int   @default(7)
+  smtpHost                String?   @default("smtp.mailgun.org")
+  smtpPort                Int?      @default(587)
+  smtpUser                String?   @default("billing@klanvision.com")
+  smtpPassword            String?   @default("")
+  smtpSecure              Boolean   @default(true)
+  smtpSenderEmail         String?   @default("billing@klanvision.com")
+  scheduledJobsActive     Boolean   @default(true)
+  lastReminderJobRunAt    DateTime?
+
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+}
+
+model TenantInvite {
+  id        String   @id @default(uuid())
+  tenantId  String
+  email     String
+  name      String?
+  role      String   @default("VIEWER") // OWNER, ADMIN, ACCOUNTANT, VIEWER
+  status    String   @default("PENDING") // PENDING, ACCEPTED, REVOKED
+  invitedBy String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, email])
+  @@index([tenantId])
+}
+
+model Customer {
+  id                 String   @id @default(uuid())
+  tenantId           String
+  name               String
+  type               String   @default("BUSINESS") // INDIVIDUAL, BUSINESS
+  email              String
+  phone              String
+  gstin              String?
+  pan                String?
+  
+  billingAddress     String
+  billingCity        String
+  billingState       String
+  billingPostalCode  String
+  billingCountry     String   @default("India")
+  
+  shippingAddress    String?
+  shippingCity       String?
+  shippingState      String?
+  shippingPostalCode String?
+  shippingCountry    String   @default("India")
+  
+  openingBalance     Float    @default(0.0)
+  currentOutstanding Float    @default(0.0)
+  status             String   @default("ACTIVE") // ACTIVE, INACTIVE
+  notes              String?
+  
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  tenant   Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  invoices Invoice[]
+  payments Payment[]
+
+  @@index([tenantId, name])
+  @@index([tenantId, email])
+}
+
+model Product {
+  id          String   @id @default(uuid())
+  tenantId    String
+  name        String
+  description String?
+  sku         String?
+  hsnSacCode  String
+  type        String   @default("SERVICE") // GOODS, SERVICE
+  uom         String   @default("NOS") // NOS, PCS, HRS, DAYS, KGS, MTR
+  unitPrice   Float
+  discount    Float    @default(0.0)
+  gstRate     Float    @default(18.0) // 0, 5, 12, 18, 28
+  category    String   @default("Software & IT")
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  tenant    Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  lineItems InvoiceLineItem[]
+
+  @@index([tenantId, name])
+  @@index([tenantId, sku])
+}
+
+model Invoice {
+  id                String   @id @default(uuid())
+  tenantId          String
+  customerId        String
+  invoiceNumber     String
+  issueDate         DateTime
+  dueDate           DateTime
+  status            String   @default("DRAFT") // DRAFT, ISSUED, PARTIALLY_PAID, PAID, OVERDUE, CANCELLED
+  paymentStatus     String   @default("UNPAID") // UNPAID, PARTIALLY_PAID, PAID
+  
+  // Tax & Supply Logic
+  isInterState      Boolean  @default(false)
+  
+  // Financial Totals
+  subtotal          Float    @default(0.0)
+  discountTotal     Float    @default(0.0)
+  taxableAmount     Float    @default(0.0)
+  taxTotal          Float    @default(0.0)
+  cgstTotal         Float    @default(0.0)
+  sgstTotal         Float    @default(0.0)
+  igstTotal         Float    @default(0.0)
+  roundOff          Float    @default(0.0)
+  totalAmount       Float    @default(0.0)
+  paidAmount        Float    @default(0.0)
+  outstandingAmount Float    @default(0.0)
+  
+  notes             String?
+  terms             String?
+  
+  createdById       String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  tenant          Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customer        Customer            @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  createdBy       User?               @relation("UserInvoices", fields: [createdById], references: [id], onDelete: SetNull)
+  lineItems       InvoiceLineItem[]
+  payments        Payment[]
+  allocations     PaymentAllocation[]
+
+  @@unique([tenantId, invoiceNumber])
+  @@index([tenantId, status])
+  @@index([tenantId, customerId])
+  @@index([tenantId, issueDate])
+}
+
+model InvoiceLineItem {
+  id              String  @id @default(uuid())
+  invoiceId       String
+  productId       String?
+  description     String
+  hsnSacCode      String
+  quantity        Float   @default(1.0)
+  unitPrice       Float
+  discountPercent Float   @default(0.0)
+  discountAmount  Float   @default(0.0)
+  taxableAmount   Float
+  gstRate         Float   @default(18.0)
+  cgstAmount      Float   @default(0.0)
+  sgstAmount      Float   @default(0.0)
+  igstAmount      Float   @default(0.0)
+  totalAmount     Float
+
+  invoice Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  product Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+
+  @@index([invoiceId])
+}
+
+model Payment {
+  id                   String   @id @default(uuid())
+  tenantId             String
+  customerId           String
+  invoiceId            String?
+  paymentNumber        String
+  paymentDate          DateTime @default(now())
+  amount               Float
+  paymentMethod        String   @default("BANK_TRANSFER") // UPI, BANK_TRANSFER, CASH, CARD, CHEQUE
+  transactionReference String?
+  notes                String?
+  receiptUrl           String?
+  status               String   @default("SUCCESS") // SUCCESS, PENDING, FAILED
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  tenant      Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customer    Customer            @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  invoice     Invoice?            @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
+  allocations PaymentAllocation[]
+
+  @@index([tenantId, customerId])
+  @@index([tenantId, paymentDate])
+}
+
+model PaymentAllocation {
+  id          String   @id @default(uuid())
+  paymentId   String
+  invoiceId   String
+  amount      Float
+  allocatedAt DateTime @default(now())
+
+  payment Payment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@index([paymentId])
+  @@index([invoiceId])
+}
+
+model AuditLog {
+  id         String   @id @default(uuid())
+  tenantId   String
+  userId     String?
+  action     String   // CREATE, UPDATE, DELETE, ISSUE, PAYMENT, LOGIN
+  entityType String   // INVOICE, CUSTOMER, PRODUCT, PAYMENT, SETTINGS
+  entityId   String?
+  details    String?  // JSON string or summary
+  ipAddress  String?
+  createdAt  DateTime @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, createdAt])
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  tenantId  String
+  userId    String?
+  title     String
+  message   String
+  type      String   @default("INFO") // INFO, SUCCESS, WARNING, ERROR
+  link      String?
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, isRead])
+}
